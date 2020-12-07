@@ -10,18 +10,34 @@ import (
 )
 
 // NewAccount registers a new account with the acme service
+// Note this function is essentially deprecated and only present for backwards compatibility.
+// New programs should implement NewAccountOptions instead.
 func (c Client) NewAccount(privateKey crypto.Signer, onlyReturnExisting, termsOfServiceAgreed bool, contact ...string) (Account, error) {
-	newAccountReq := struct {
-		OnlyReturnExisting   bool     `json:"onlyReturnExisting"`
-		TermsOfServiceAgreed bool     `json:"termsOfServiceAgreed"`
-		Contact              []string `json:"contact,omitempty"`
-	}{
-		OnlyReturnExisting:   onlyReturnExisting,
-		TermsOfServiceAgreed: termsOfServiceAgreed,
-		Contact:              contact,
+	var opts []NewAccountOptionFunc
+	if onlyReturnExisting {
+		opts = append(opts, NewAcctOptOnlyReturnExisting())
+	}
+	if termsOfServiceAgreed {
+		opts = append(opts, NewAcctOptAgreeTOS())
+	}
+	if contact != nil && len(contact) > 0 {
+		opts = append(opts, NewAcctOptWithContacts(contact...))
 	}
 
+	return c.NewAccountOptions(privateKey, opts...)
+}
+
+// NewAccountOptions registers an account with an acme server with the provided options.
+func (c Client) NewAccountOptions(privateKey crypto.Signer, options ...NewAccountOptionFunc) (Account, error) {
+	newAccountReq := NewAccountRequest{}
 	account := Account{}
+
+	for _, opt := range options {
+		if err := opt(privateKey, &account, &newAccountReq, c); err != nil {
+			return account, err
+		}
+	}
+
 	resp, err := c.post(c.dir.NewAccount, "", privateKey, newAccountReq, &account, http.StatusOK, http.StatusCreated)
 	if err != nil {
 		return account, err
